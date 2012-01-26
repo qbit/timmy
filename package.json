@@ -1,0 +1,16 @@
+{
+  "author": "Aaron Bieber <aaron@qbit.io> (http://qbit.io)",
+  "name": "timmy",
+  "description": "XMPP based time tracking app",
+  "version": "0.0.0",
+  "repository": {
+    "url": ""
+  },
+  "engines": {
+    "node": "~0.6.7"
+  },
+  "dependencies": {
+    "node-xmpp": "~0.3.1"
+  },
+  "devDependencies": {}
+}
