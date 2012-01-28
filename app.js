@@ -36,22 +36,58 @@ function single_insert( val, table ) {
 	st.finalize();
 }
 
+function get_names( to, table ) {
+	var names = [];
+	db.all( 'select * from ' + table, function( err, rows ) {
+		var i, l;
+		names.push( rows.length + ' entrie(s) found' );
+		for ( i = 0, l = rows.length; i < l; i++ ) {
+			names.push( '\n' + rows[i].id + '. ' + rows[i].name );
+		}
+
+		xmpp.send( to, names.join( ',' ) );
+	});
+}
+
+function start_tracking( to, cat, proj ) {
+	console.log( "to: %s, cat: %s, proj: %s", to, cat, proj );
+}
+
 var cmds = {
 	add: {
-		project: function( proj ) {
+		project: function( to, proj ) {
 			single_insert( proj, 'projects' );
+			xmpp.send( to, 'project "' + proj + '" added.' );
 		},
-		category: function( cat ) {
+		category: function( to, cat ) {
 			single_insert( cat, 'categories' );
+			xmpp.send( to, 'category "' + cat + '" added.' );
 		},
-		user: function( user ) {
+		user: function( to, user ) {
 			single_insert( user, 'users' );
+			xmpp.send( to, 'user "' + user + '" added.' );
 		}
 	},
-	rm: {
+
+	remove: {
 		project: "",
 		category: "",
 		user: ""
+	},
+
+	list: {
+		projects: function( to, table ) {
+			get_names( to, table );
+		},
+		categories: function( to, table ) {
+			get_names( to, table );
+		},
+		users: function( to, table ) {
+			get_names( to, table );
+		}
+	},
+	start: function( to, cat, proj ) {
+		start_tracking( to, cat, proj );
 	}
 };
 
@@ -78,9 +114,33 @@ parser.on( 'port', function( opt, val ) {
 
 parser.parse( process.argv );
 
+function process_cmd( from, msg ) {
+	var parts = msg.split( /\s/ );
+
+	var cmd = parts[0];
+	parts.shift();
+
+	var scmd = parts[0];
+	parts.shift();
+
+	var option = parts.join( ' ' );
+
+	console.log( 'CMD: %s, SubCMD: %s, Rest: "%s"', cmd, scmd, option );
+
+	if ( ! cmds[ cmd ] ) {
+		xmpp.send( from, "Unknown Command: " + cmd );
+	} else {
+		if ( cmds[ cmd ][ scmd ] ) {
+			cmds[ cmd ][ scmd ]( from, option || scmd );
+		} else {
+			cmds[ cmd ]( from, scmd, option )
+		}
+	}
+}
+
 xmpp.on( 'chat', function( from, message ) {
-	console.log( from );
-	console.log( message );
+	console.log( "%s -> %s", from, message );
+	process_cmd( from, message );
 });
 
 xmpp.on( 'online', function() {
