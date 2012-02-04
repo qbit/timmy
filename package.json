@@ -14,7 +14,8 @@
     "node-sqlite3": "~2.1.1",
     "node-stringprep": "~0.1.4",
     "optparse": "~1.0.3",
-    "simple-xmpp": "~0.1.5beta"
+    "simple-xmpp": "~0.1.5beta",
+    "async": "~0.1.15"
   },
   "devDependencies": {}
 }

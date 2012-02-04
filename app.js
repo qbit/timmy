@@ -1,9 +1,14 @@
 var sqlite = require( 'node-sqlite3' ),
+	async = require( 'async' ),
 	xmpp = require( 'simple-xmpp' ),
 	optparse = require( 'optparse' ),
 	fs = require( 'fs' ),
 	db_file = __dirname + '/timmy.db',
 	db = new sqlite.Database( db_file ),
+	parser,
+	options,
+	switches,
+	cmds
 	running_timers = {};
 
 fs.stat( db_file, function( err, stat ) {
@@ -18,7 +23,7 @@ fs.stat( db_file, function( err, stat ) {
 	}
 });
 
-var switches = [
+switches = [
 	[ '-h', '--help', 'Shows this help' ],
 	[ '-j', '--jid JID', 'XMPP jid' ],
 	[ '-p', '--password PASSWORD', 'XMPP Password' ],
@@ -26,14 +31,17 @@ var switches = [
 	[ '-n', '--port PORT', 'XMPP Port ( default 5222 )' ],
 ];
 
-var parser = new optparse.OptionParser(switches);
+parser = new optparse.OptionParser( switches );
 
-var options = {};
+options = {};
 
-function single_insert( val, table ) {
+function single_insert( val, table, fn ) {
 	var st = db.prepare( 'insert into ' + table + ' ( name ) values ( ? )' );
 	st.run( val );
 	st.finalize();
+	if ( fn ) {
+		fn();
+	}
 }
 
 function get_names( to, table ) {
@@ -49,11 +57,109 @@ function get_names( to, table ) {
 	});
 }
 
-function start_tracking( to, cat, proj ) {
-	console.log( "to: %s, cat: %s, proj: %s", to, cat, proj );
+function get_val( table, val, fn ) {
+	var sql;
+	if ( val.indexOf( '@' ) ) {
+		sql = 'select * from ' + table + ' where id = "' + val + '" or name = "' + val + '"';
+	} else {
+		sql = 'select * from ' + table + ' where id = ' + val + ' or name = ' + val;
+	}
+
+	db.all( sql, function( err, rows ) {
+		if ( err ) {
+			fn.call( null, err );
+		} else {
+			fn.call( null, null, rows );
+			res = rows;
+		}
+	});
 }
 
-var cmds = {
+function start_tracking( to, cat, proj ) {
+
+	var o = {};
+
+	async.series( [
+		function( cb ) { 
+			get_val( 'users', to, function( err, res ) {
+				if ( err || res.length === 0 ) {
+					single_insert( to, 'users', function() {
+						get_val( 'users', to, function( e, r ) {
+							if ( e ) {
+								throw e;
+							}
+							o.user = r[0].name;
+							o.u_id = r[0].id;
+						});
+					});
+				} else {
+
+					o.user = res[0].name;
+					o.u_id = res[0].id;
+					cb();
+				}
+			});
+		},
+
+		function( cb ) { 
+			get_val( 'categories', cat, function( err, res ) {
+				o.cat = res[0].name;
+				o.c_id = res[0].id;
+				cb();
+			});
+		},
+
+		function( cb ) {
+			get_val( 'projects', proj, function( err, res ) {
+				o.proj = res[0].name;
+				o.p_id = res[0].id;
+				cb();
+			});
+		}, 
+		function( cb ) {
+			xmpp.send( to, 'Started tracking time for: ' + o.cat + ':' +  o.proj );
+			var st = db.prepare( "insert into times ( categoryid, projectid, userid, begin ) values ( ?, ?, ?, datetime('now') )" );
+			st.run( [ o.c_id, o.p_id, o.u_id ] );
+			st.finalize();
+			cb();
+		}
+	]);
+}
+
+function end_tracking( to, cat, proj ) {
+	var userid;
+
+	async.series( [
+		function( cb ) {
+			get_val( 'users', to, function( err, res ) {
+				if ( err ) {
+					throw err;
+				} else {
+					userid = res[0].id
+				}
+				cb();
+			});
+		},
+		function( cb ) {
+			var sql = "\
+				update\
+					times\
+				set\
+					end = datetime( 'now' )\
+				where\
+					userid = '" + userid + "' and\
+					categoryid = " + cat + " and\
+					end is null and\
+					projectid = " + proj + "\
+			";
+
+			db.run( sql );
+			xmpp.send( to, 'Ending time tracking' );
+		}
+	]);
+}
+
+cmds = {
 	add: {
 		project: function( to, proj ) {
 			single_insert( proj, 'projects' );
@@ -88,6 +194,10 @@ var cmds = {
 	},
 	start: function( to, cat, proj ) {
 		start_tracking( to, cat, proj );
+	},
+
+	end: function( to, cat, proj ) {
+		end_tracking( to, cat, proj );
 	}
 };
 
@@ -114,6 +224,10 @@ parser.on( 'port', function( opt, val ) {
 
 parser.parse( process.argv );
 
+function isFun( obj ) {
+	return toString.call(obj) === "[object Function]";
+}
+
 function process_cmd( from, msg ) {
 	var parts = msg.split( /\s/ );
 
@@ -133,7 +247,11 @@ function process_cmd( from, msg ) {
 		if ( cmds[ cmd ][ scmd ] ) {
 			cmds[ cmd ][ scmd ]( from, option || scmd );
 		} else {
-			cmds[ cmd ]( from, scmd, option )
+			if ( cmds[ cmd ] && isFun( cmds[ cmd ] ) ) {
+				cmds[ cmd ]( from, scmd, option )
+			} else {
+				xmpp.send( from, "Unknown Subcommand or Option!" );
+			}
 		}
 	}
 }
