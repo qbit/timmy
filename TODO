@@ -2,3 +2,5 @@ Add active time listing ability.
 Return the amount of time worked on cat:proj when ending is done
 Return the start time when starting working
 Add summary option ( day, week, month, year )
+
+Add optional auto end on status change.
