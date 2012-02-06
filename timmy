@@ -334,6 +334,14 @@ xmpp.on( 'online', function() {
 	debug( 1, "connected to xmpp" );
 });
 
+xmpp.on( 'buddy', function( jid, state ) {
+    debug( 3, jid + ' -> ' + state );
+});
+
+xmpp.on( 'stanza', function( stanza ) {
+    debug( 3, stanza );
+});
+
 xmpp.on( 'error', function( err ) {
 	throw err;
 });
