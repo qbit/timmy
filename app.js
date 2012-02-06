@@ -11,14 +11,35 @@ var sqlite = require( 'node-sqlite3' ),
 	cmds
 	running_timers = {};
 
+function debug( level, msg ) {
+	switch( options.debug ) {
+		case '1':
+			if ( level === 1 ) {
+				console.log( msg );
+			}
+			break;
+		case '2':
+			if ( level === 2 ) {
+				console.log( msg );
+			}
+			break;
+		case '3':
+			if ( level === 3 ) {
+				console.log( msg );
+			}
+			break;
+	}
+}
+
 fs.stat( db_file, function( err, stat ) {
 	if ( stat.size === 0 ) {
-		console.log( "Creating db..." );
 		db.serialize( function() {
 			db.run( 'create table categories ( id integer primary key autoincrement, name text )' );
 			db.run( 'create table projects( id integer primary key autoincrement, name text )' );
 			db.run( 'create table users( id integer primary key autoincrement, name text )' );
 			db.run( 'create table times( id integer primary key autoincrement, name text, categoryid integer, projectid integer, userid integer, begin timestamp, end timestamp )' );
+
+			debug( 1, "database created.." );
 		});
 	}
 });
@@ -28,6 +49,7 @@ switches = [
 	[ '-j', '--jid JID', 'XMPP jid' ],
 	[ '-p', '--password PASSWORD', 'XMPP Password' ],
 	[ '-s', '--host HOST', 'XMPP Server' ],
+	[ '-d', '--debug DEBUG', 'Debug Messages ( 1-3, 3 being most verbose )' ],
 	[ '-n', '--port PORT', 'XMPP Port ( default 5222 )' ],
 ];
 
@@ -36,6 +58,7 @@ parser = new optparse.OptionParser( switches );
 options = {};
 
 function single_insert( val, table, fn ) {
+	debug( 3, "inserting into " + table );
 	var st = db.prepare( 'insert into ' + table + ' ( name ) values ( ? )' );
 	st.run( val );
 	st.finalize();
@@ -46,6 +69,7 @@ function single_insert( val, table, fn ) {
 
 function get_names( to, table ) {
 	var names = [];
+	debug( 3, "getting names from " + table );
 	db.all( 'select * from ' + table, function( err, rows ) {
 		var i, l;
 		names.push( rows.length + ' entrie(s) found' );
@@ -65,6 +89,8 @@ function get_val( table, val, fn ) {
 		sql = 'select * from ' + table + ' where id = ' + val + ' or name = ' + val;
 	}
 
+	debug( 3, sql );
+
 	db.all( sql, function( err, rows ) {
 		if ( err ) {
 			fn.call( null, err );
@@ -78,6 +104,10 @@ function get_val( table, val, fn ) {
 function start_tracking( to, cat, proj ) {
 
 	var o = {};
+
+	if ( ! running_timers[ to ] ) {
+		running_timers[ to ] = {};
+	}
 
 	async.series( [
 		function( cb ) { 
@@ -103,24 +133,37 @@ function start_tracking( to, cat, proj ) {
 
 		function( cb ) { 
 			get_val( 'categories', cat, function( err, res ) {
-				o.cat = res[0].name;
-				o.c_id = res[0].id;
-				cb();
+				if ( err ) {
+					throw err;
+				} else {
+					o.cat = res[0].name;
+					o.c_id = res[0].id;
+					cb();
+				}
 			});
 		},
 
 		function( cb ) {
 			get_val( 'projects', proj, function( err, res ) {
-				o.proj = res[0].name;
-				o.p_id = res[0].id;
-				cb();
+				if ( err ) {
+					throw err;
+				} else {
+					o.proj = res[0].name;
+					o.p_id = res[0].id;
+					cb();
+				}
 			});
 		}, 
 		function( cb ) {
-			xmpp.send( to, 'Started tracking time for: ' + o.cat + ':' +  o.proj );
-			var st = db.prepare( "insert into times ( categoryid, projectid, userid, begin ) values ( ?, ?, ?, datetime('now') )" );
-			st.run( [ o.c_id, o.p_id, o.u_id ] );
-			st.finalize();
+			if ( ! running_timers[ to ].start ) {
+				xmpp.send( to, 'Started tracking time for: ' + o.cat + ':' +  o.proj );
+				var st = db.prepare( "insert into times ( categoryid, projectid, userid, begin ) values ( ?, ?, ?, datetime('now') )" );
+				st.run( [ o.c_id, o.p_id, o.u_id ] );
+				st.finalize();
+				running_timers[ to ].start = true;
+			} else {
+				xmpp.send( to, 'You currently have a running timer, please end it before continuing!' );
+			}
 			cb();
 		}
 	]);
@@ -141,20 +184,25 @@ function end_tracking( to, cat, proj ) {
 			});
 		},
 		function( cb ) {
-			var sql = "\
-				update\
-					times\
-				set\
-					end = datetime( 'now' )\
-				where\
-					userid = '" + userid + "' and\
-					categoryid = " + cat + " and\
-					end is null and\
-					projectid = " + proj + "\
-			";
+			if ( running_timers[ to ] && running_timers[ to ].start ) {
+				var sql = "\
+					update\
+						times\
+					set\
+						end = datetime( 'now' )\
+					where\
+						userid = '" + userid + "' and\
+						categoryid = " + cat + " and\
+						end is null and\
+						projectid = " + proj + "\
+				";
 
-			db.run( sql );
-			xmpp.send( to, 'Ending time tracking' );
+				db.run( sql );
+				xmpp.send( to, 'Ending time tracking' );
+				running_timers[ to ].start = false;
+			} else {
+				xmpp.send( to, 'Currently, you have no running timers.' );
+			}
 		}
 	]);
 }
@@ -188,10 +236,27 @@ cmds = {
 		categories: function( to, table ) {
 			get_names( to, table );
 		},
+		all: function( to, table ) {
+			get_names( to, 'categories' );
+			get_names( to, 'projects' );
+		},
 		users: function( to, table ) {
 			get_names( to, table );
 		}
 	},
+
+	ls: {
+		pro: function( to, table ) {
+			get_names( to, 'projects' );
+		},
+		cat: function( to, table ) {
+			get_names( to, 'categories' );
+		},
+		users: function( to, table ) {
+			get_names( to, 'users' );
+		}
+	},
+
 	start: function( to, cat, proj ) {
 		start_tracking( to, cat, proj );
 	},
@@ -222,6 +287,10 @@ parser.on( 'port', function( opt, val ) {
 	options.port = val;
 });
 
+parser.on( 'debug', function( opt, val ) {
+	options.debug = val || 1;
+});
+
 parser.parse( process.argv );
 
 function isFun( obj ) {
@@ -239,7 +308,7 @@ function process_cmd( from, msg ) {
 
 	var option = parts.join( ' ' );
 
-	console.log( 'CMD: %s, SubCMD: %s, Rest: "%s"', cmd, scmd, option );
+	debug( 1, 'CMD: ' + cmd + ', SubCMD: ' + scmd + ', Rest: "' + option + '"' );
 
 	if ( ! cmds[ cmd ] ) {
 		xmpp.send( from, "Unknown Command: " + cmd );
@@ -257,16 +326,16 @@ function process_cmd( from, msg ) {
 }
 
 xmpp.on( 'chat', function( from, message ) {
-	console.log( "%s -> %s", from, message );
+	debug( 1, from + " -> " + message );
 	process_cmd( from, message );
 });
 
 xmpp.on( 'online', function() {
-	console.log( "connected.." );
+	debug( 1, "connected to xmpp" );
 });
 
 xmpp.on( 'error', function( err ) {
-	console.log( err );
+	throw err;
 });
 
 xmpp.connect( {
