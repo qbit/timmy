@@ -19,28 +19,28 @@ Timmy inserts a start time when it receives the command ( you must have previous
 	-d, --debug DEBUG         Debug Messages ( 1-3, 3 being most verbose )
 	-n, --port PORT           XMPP Port ( default 522
 
-## Using Timmy
+# Using Timmy
 
-# Adding a Category:
+## Adding a Category:
 	xmpp> add category Development
 	(07:55:42) Time Tracker: category "Development" added.	
 
-# Adding a Project:
+## Adding a Project:
 	xmpp> add project Timmy
 	(07:55:46) Time Tracker: project "Timmy" added.	
 	
-# Listing Projects:
+## Listing Projects:
 	xmpp> list projects
 	xmpp> ls proj
 
-# Listing Categories:
+## Listing Categories:
 	xmpp> list categories
 	xmpp> ls cat
 
-# List Projects and Categories:
+## List Projects and Categories:
 	xmpp> list all
 
-# Starting and Ending tracking:
+## Starting and Ending tracking:
 	xmpp> start <categoryid> <projectid>
 	xmpp> end <categoryid> <projectid>
 	
