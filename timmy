@@ -1,5 +1,5 @@
-var sqlite = require( 'node-sqlite3' ),
-	async = require( 'async' ),
+var async = require( 'async' ),
+  sqlite = require( 'sqlite3' ),
 	xmpp = require( 'simple-xmpp' ),
 	optparse = require( 'optparse' ),
 	fs = require( 'fs' ),
