@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 var sqlite = require( 'node-sqlite3' ),
 	async = require( 'async' ),
 	xmpp = require( 'simple-xmpp' ),
